@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/gorilla/mux"
 )
 
 type mockService struct {
@@ -176,8 +178,7 @@ func TestPlayerLeaderboardHandler_Success(t *testing.T) {
 	req := httptest.NewRequest("GET", "/leaderboard/player/p1", nil)
 	rec := httptest.NewRecorder()
 
-	// mux.Vars requires a router, so we set it manually
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.PlayerLeaderboardHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusOK {
@@ -198,7 +199,7 @@ func TestPlayerLeaderboardHandler_Error(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/leaderboard/player/p1", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.PlayerLeaderboardHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -215,7 +216,7 @@ func TestLeaderboardHandler_Success(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/leaderboard/lid", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"leaderboardID": "lid"})
+	req = mux.SetURLVars(req, map[string]string{"leaderboardID": "lid"})
 	h.LeaderboardHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusOK {
@@ -232,7 +233,7 @@ func TestLeaderboardHandler_NotFound(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/leaderboard/lid", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"leaderboardID": "lid"})
+	req = mux.SetURLVars(req, map[string]string{"leaderboardID": "lid"})
 	h.LeaderboardHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusNotFound {
@@ -300,7 +301,7 @@ func TestGetPlayerHandler_Success(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/player/p1", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.GetPlayerHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusOK {
@@ -317,7 +318,7 @@ func TestGetPlayerHandler_NotFound(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/player/p2", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p2"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p2"})
 	h.GetPlayerHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusNotFound {
@@ -338,7 +339,7 @@ func TestUpdatePlayerHandler_Success(t *testing.T) {
 	b, _ := json.Marshal(map[string]interface{}{"level": 2, "country_code": "GB"})
 	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader(b))
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.UpdatePlayerHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusOK {
@@ -350,7 +351,7 @@ func TestUpdatePlayerHandler_BadRequest(t *testing.T) {
 	h := NewHandler(&mockService{})
 	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader([]byte("notjson")))
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.UpdatePlayerHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -368,7 +369,7 @@ func TestUpdatePlayerHandler_Error(t *testing.T) {
 	b, _ := json.Marshal(map[string]interface{}{"level": 2, "country_code": "GB"})
 	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader(b))
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.UpdatePlayerHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -485,7 +486,7 @@ func TestUpdatePlayerHandler_InternalError(t *testing.T) {
 	b, _ := json.Marshal(map[string]interface{}{"level": 2, "country_code": "GB"})
 	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader(b))
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p1"})
 	h.UpdatePlayerHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -502,7 +503,7 @@ func TestPlayerLeaderboardHandler_EmptyLeaderboard(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/leaderboard/player/p8", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"player_id": "p8"})
+	req = mux.SetURLVars(req, map[string]string{"player_id": "p8"})
 	h.PlayerLeaderboardHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusOK {
@@ -523,15 +524,10 @@ func TestLeaderboardHandler_InternalError(t *testing.T) {
 	h := NewHandler(svc)
 	req := httptest.NewRequest("GET", "/leaderboard/lid", nil)
 	rec := httptest.NewRecorder()
-	req = muxSetVars(req, map[string]string{"leaderboardID": "lid"})
+	req = mux.SetURLVars(req, map[string]string{"leaderboardID": "lid"})
 	h.LeaderboardHandler(rec, req)
 	resp := rec.Result()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
-}
-
-// Helper to set mux vars for testing
-func muxSetVars(r *http.Request, vars map[string]string) *http.Request {
-	return r.WithContext(context.WithValue(r.Context(), "muxVars", vars))
 }
