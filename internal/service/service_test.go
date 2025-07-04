@@ -268,8 +268,8 @@ func TestService_GetPlayerLeaderboard_Success(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 	m, ok := resp.(map[string]interface{})
-	if !ok || m["leaderboard_id"] != compID {
-		t.Errorf("expected leaderboard_id %s, got %v", compID, m["leaderboard_id"])
+	if !ok || m["leaderboard_id"] != compID.String() {
+		t.Errorf("expected leaderboard_id %s, got %v", compID.String(), m["leaderboard_id"])
 	}
 }
 
