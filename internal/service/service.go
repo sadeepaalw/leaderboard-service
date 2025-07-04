@@ -11,17 +11,23 @@ import (
 	"github.com/google/uuid"
 )
 
-type Service struct {
-	repo repository.RepositoryInterface
+type Config struct {
+	MatchmakingInterval time.Duration
+	CompetitionDuration time.Duration
 }
 
-func NewService(repo repository.RepositoryInterface) *Service {
-	return &Service{repo: repo}
+type Service struct {
+	repo   repository.RepositoryInterface
+	config Config
+}
+
+func NewService(repo repository.RepositoryInterface, config Config) *Service {
+	return &Service{repo: repo, config: config}
 }
 
 func (s *Service) StartMatchmakingWorker(ctx context.Context) {
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(s.config.MatchmakingInterval)
 		defer ticker.Stop()
 		log.Println("[MatchmakingWorker] Started")
 		for {
@@ -37,6 +43,10 @@ func (s *Service) StartMatchmakingWorker(ctx context.Context) {
 }
 
 func (s *Service) runMatchmaking(ctx context.Context) {
+	// Mark finished competitions as COMPLETED
+	if err := s.repo.CompleteFinishedCompetitions(ctx); err != nil {
+		log.Printf("[MatchmakingWorker] Error completing finished competitions: %v", err)
+	}
 	waitingPlayers, err := s.repo.GetWaitingPlayers(ctx)
 	if err != nil {
 		log.Printf("[MatchmakingWorker] Error fetching waiting players: %v", err)
@@ -46,6 +56,14 @@ func (s *Service) runMatchmaking(ctx context.Context) {
 		log.Println("[MatchmakingWorker] No players waiting")
 		return
 	}
+
+	// Check for existing active competition
+	activeComp, err := s.repo.GetActiveCompetition(ctx)
+	if err == nil && activeComp != nil {
+		log.Printf("[MatchmakingWorker] Active competition %s already exists, skipping creation", activeComp.CompetitionID.String())
+		return
+	}
+
 	group := waitingPlayers
 	if len(group) > 10 {
 		group = group[:10]
@@ -54,13 +72,14 @@ func (s *Service) runMatchmaking(ctx context.Context) {
 
 	compID := uuid.New()
 	now := time.Now()
-	endsAt := now.Add(60 * time.Minute)
+	endsAt := now.Add(s.config.CompetitionDuration)
 	comp := &model.Competition{
 		CompetitionID: compID,
 		StartedAt:     now,
 		EndsAt:        endsAt,
 		Level:         group[0].Level,
 		CountryCode:   group[0].CountryCode,
+		Status:        model.CompetitionActive,
 	}
 	if err := s.repo.CreateCompetition(ctx, comp); err != nil {
 		log.Printf("[MatchmakingWorker] Error creating competition: %v", err)
@@ -88,6 +107,15 @@ func (s *Service) Join(ctx context.Context, playerID string) (string, error) {
 	if err == nil {
 		log.Printf("[Service] Player %s already in active competition", playerID)
 		return "", errors.New("player already in active competition")
+	}
+	inQueue, err := s.repo.IsPlayerInWaitingQueue(ctx, playerID)
+	if err != nil {
+		log.Printf("[Service] Error checking waiting queue for player %s: %v", playerID, err)
+		return "", err
+	}
+	if inQueue {
+		log.Printf("[Service] Player %s is already in the waiting queue", playerID)
+		return "", errors.New("player already in waiting queue")
 	}
 	pc := &model.PlayerCompetition{
 		PlayerID:      playerID,
@@ -161,6 +189,12 @@ func (s *Service) GetLeaderboard(ctx context.Context, leaderboardID string) (int
 
 func (s *Service) SubmitScore(ctx context.Context, playerID string, score int) error {
 	log.Printf("[Service] Submitting score for player %s", playerID)
+	// Check if player exists
+	_, err := s.repo.GetPlayerByID(ctx, playerID)
+	if err != nil {
+		log.Printf("[Service] Player %s not found when submitting score", playerID)
+		return errors.New("player not found")
+	}
 	pc, err := s.repo.GetActivePlayerCompetition(ctx, playerID)
 	if err != nil {
 		log.Printf("[Service] Player %s not in active competition", playerID)
@@ -181,21 +215,40 @@ func (s *Service) CreatePlayer(ctx context.Context, playerID string, level int, 
 		Level:       level,
 		CountryCode: countryCode,
 	}
-	return s.repo.CreatePlayer(ctx, player)
+	err := s.repo.CreatePlayer(ctx, player)
+	if err != nil {
+		log.Printf("[Service] Error creating player %s: %v", playerID, err)
+		return err
+	}
+	log.Printf("[Service] Successfully created player %s", playerID)
+	return nil
 }
 
 func (s *Service) GetPlayer(ctx context.Context, playerID string) (*model.Player, error) {
-	return s.repo.GetPlayerByID(ctx, playerID)
+	player, err := s.repo.GetPlayerByID(ctx, playerID)
+	if err != nil {
+		log.Printf("[Service] Error fetching player %s: %v", playerID, err)
+		return nil, err
+	}
+	log.Printf("[Service] Successfully fetched player %s", playerID)
+	return player, nil
 }
 
 func (s *Service) UpdatePlayer(ctx context.Context, playerID string, level int, countryCode string) error {
 	player, err := s.repo.GetPlayerByID(ctx, playerID)
 	if err != nil {
+		log.Printf("[Service] Error fetching player %s for update: %v", playerID, err)
 		return err
 	}
 	player.Level = level
 	player.CountryCode = countryCode
-	return s.repo.UpdatePlayer(ctx, player)
+	err = s.repo.UpdatePlayer(ctx, player)
+	if err != nil {
+		log.Printf("[Service] Error updating player %s: %v", playerID, err)
+		return err
+	}
+	log.Printf("[Service] Successfully updated player %s", playerID)
+	return nil
 }
 
 // // Repository interface for dependency injection

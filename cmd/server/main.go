@@ -14,6 +14,16 @@ import (
 	"time"
 )
 
+func getenvDuration(key string, fallback time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		d, err := time.ParseDuration(val)
+		if err == nil {
+			return d
+		}
+	}
+	return fallback
+}
+
 func main() {
 	database := db.Open()
 	defer db.Close(database)
@@ -24,7 +34,13 @@ func main() {
 	database.SetConnMaxLifetime(30 * time.Second)
 
 	repo := repository.NewRepository(database)
-	svc := service.NewService(repo)
+
+	config := service.Config{
+		MatchmakingInterval: getenvDuration("MATCHMAKING_INTERVAL", 30*time.Second),
+		CompetitionDuration: getenvDuration("COMPETITION_DURATION", 1*time.Minute),
+	}
+
+	svc := service.NewService(repo, config)
 	handler := api.NewHandler(svc)
 
 	router := api.NewRouter(handler)

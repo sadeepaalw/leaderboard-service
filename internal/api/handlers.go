@@ -93,6 +93,11 @@ func (h *Handler) ScoreHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Handler] /leaderboard/score called for player %s", req.PlayerID)
 	err := h.service.SubmitScore(ctx, req.PlayerID, req.Score)
 	if err != nil {
+		if err.Error() == "player not found" {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 		if err.Error() == "player not in active competition" {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -104,7 +109,6 @@ func (h *Handler) ScoreHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Score submitted"})
 }
 
 func (h *Handler) CreatePlayerHandler(w http.ResponseWriter, r *http.Request) {

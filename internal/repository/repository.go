@@ -20,46 +20,17 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) Join(ctx context.Context, playerID string) (string, error) {
-	// Dummy implementation
-	return "dummy-leaderboard-id", nil
-}
-
-func (r *Repository) GetPlayerLeaderboard(ctx context.Context, playerID string) (interface{}, error) {
-	// Dummy implementation
-	return map[string]interface{}{
-		"leaderboard_id": "dummy-leaderboard-id",
-		"ends_at":        1234567890,
-		"leaderboard": []map[string]interface{}{
-			{"player_id": playerID, "score": 100},
-			{"player_id": "other", "score": 90},
-		},
-	}, nil
-}
-
-func (r *Repository) GetLeaderboard(ctx context.Context, leaderboardID string) (interface{}, error) {
-	// Dummy implementation
-	return map[string]interface{}{
-		"leaderboard_id": leaderboardID,
-		"ends_at":        1234567890,
-		"leaderboard": []map[string]interface{}{
-			{"player_id": "p1", "score": 100},
-			{"player_id": "p2", "score": 90},
-		},
-	}, nil
-}
-
-func (r *Repository) SubmitScore(ctx context.Context, playerID string, score int) error {
-	// Dummy implementation
-	return nil
-}
-
 func (r *Repository) CreatePlayer(ctx context.Context, player *model.Player) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3)`,
 		player.PlayerID, player.Level, player.CountryCode,
 	)
-	return err
+	if err != nil {
+		log.Printf("[Repository] Error creating player %s: %v", player.PlayerID, err)
+		return err
+	}
+	log.Printf("[Repository] Successfully created player %s", player.PlayerID)
+	return nil
 }
 
 func (r *Repository) GetPlayerByID(ctx context.Context, playerID string) (*model.Player, error) {
@@ -69,8 +40,10 @@ func (r *Repository) GetPlayerByID(ctx context.Context, playerID string) (*model
 		playerID,
 	).Scan(&player.PlayerID, &player.Level, &player.CountryCode)
 	if err != nil {
+		log.Printf("[Repository] Error fetching player %s: %v", playerID, err)
 		return nil, err
 	}
+	log.Printf("[Repository] Successfully fetched player %s", playerID)
 	return &player, nil
 }
 
@@ -79,16 +52,32 @@ func (r *Repository) UpdatePlayer(ctx context.Context, player *model.Player) err
 		`UPDATE players SET level = $2, country_code = $3 WHERE player_id = $1`,
 		player.PlayerID, player.Level, player.CountryCode,
 	)
-	return err
+	if err != nil {
+		log.Printf("[Repository] Error updating player %s: %v", player.PlayerID, err)
+		return err
+	}
+	log.Printf("[Repository] Successfully updated player %s", player.PlayerID)
+	return nil
 }
 
 // Competition methods
+func (r *Repository) GetActiveCompetition(ctx context.Context) (*model.Competition, error) {
+	var comp model.Competition
+	err := r.db.QueryRowContext(ctx,
+		`SELECT competition_id, started_at, ends_at, level, country_code, status FROM competitions WHERE status = 'ACTIVE' LIMIT 1`,
+	).Scan(&comp.CompetitionID, &comp.StartedAt, &comp.EndsAt, &comp.Level, &comp.CountryCode, &comp.Status)
+	if err != nil {
+		return nil, err
+	}
+	return &comp, nil
+}
+
 func (r *Repository) CreateCompetition(ctx context.Context, comp *model.Competition) error {
 	log.Printf("[Repository] Creating competition %s", comp.CompetitionID.String())
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code)
-		VALUES ($1, $2, $3, $4, $5)
-	`, comp.CompetitionID, comp.StartedAt, comp.EndsAt, comp.Level, comp.CountryCode)
+		INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, comp.CompetitionID, comp.StartedAt, comp.EndsAt, comp.Level, comp.CountryCode, comp.Status)
 	if err != nil {
 		log.Printf("[Repository] Error creating competition: %v", err)
 	}
@@ -98,9 +87,9 @@ func (r *Repository) CreateCompetition(ctx context.Context, comp *model.Competit
 func (r *Repository) GetCompetitionByID(ctx context.Context, competitionID string) (*model.Competition, error) {
 	var comp model.Competition
 	err := r.db.QueryRowContext(ctx,
-		`SELECT competition_id, started_at, ends_at, level, country_code FROM competitions WHERE competition_id = $1`,
+		`SELECT competition_id, started_at, ends_at, level, country_code, status FROM competitions WHERE competition_id = $1`,
 		competitionID,
-	).Scan(&comp.CompetitionID, &comp.StartedAt, &comp.EndsAt, &comp.Level, &comp.CountryCode)
+	).Scan(&comp.CompetitionID, &comp.StartedAt, &comp.EndsAt, &comp.Level, &comp.CountryCode, &comp.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +98,8 @@ func (r *Repository) GetCompetitionByID(ctx context.Context, competitionID strin
 
 func (r *Repository) UpdateCompetition(ctx context.Context, comp *model.Competition) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE competitions SET started_at = $2, ends_at = $3, level = $4, country_code = $5 WHERE competition_id = $1`,
-		comp.CompetitionID, comp.StartedAt, comp.EndsAt, comp.Level, comp.CountryCode,
+		`UPDATE competitions SET started_at = $2, ends_at = $3, level = $4, country_code = $5, status = $6 WHERE competition_id = $1`,
+		comp.CompetitionID, comp.StartedAt, comp.EndsAt, comp.Level, comp.CountryCode, comp.Status,
 	)
 	return err
 }
@@ -121,7 +110,12 @@ func (r *Repository) CreatePlayerCompetition(ctx context.Context, pc *model.Play
 		`INSERT INTO player_competitions (player_id, competition_id, status, score, joined_at, updated_at, level, country_code) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		pc.PlayerID, pc.CompetitionID, pc.Status, pc.Score, pc.JoinedAt, pc.UpdatedAt, pc.Level, pc.CountryCode,
 	)
-	return err
+	if err != nil {
+		log.Printf("[Repository] Error creating player_competition for player %s: %v", pc.PlayerID, err)
+		return err
+	}
+	log.Printf("[Repository] Successfully created player_competition for player %s", pc.PlayerID)
+	return nil
 }
 
 func (r *Repository) GetPlayerCompetitionByID(ctx context.Context, id int) (*model.PlayerCompetition, error) {
@@ -131,8 +125,10 @@ func (r *Repository) GetPlayerCompetitionByID(ctx context.Context, id int) (*mod
 		id,
 	).Scan(&pc.ID, &pc.PlayerID, &pc.CompetitionID, &pc.Status, &pc.Score, &pc.JoinedAt, &pc.UpdatedAt, &pc.Level, &pc.CountryCode)
 	if err != nil {
+		log.Printf("[Repository] Error fetching player_competition %d: %v", id, err)
 		return nil, err
 	}
+	log.Printf("[Repository] Successfully fetched player_competition %d", id)
 	return &pc, nil
 }
 
@@ -141,7 +137,12 @@ func (r *Repository) UpdatePlayerCompetition(ctx context.Context, pc *model.Play
 		`UPDATE player_competitions SET player_id = $2, competition_id = $3, status = $4, score = $5, joined_at = $6, updated_at = $7, level = $8, country_code = $9 WHERE id = $1`,
 		pc.ID, pc.PlayerID, pc.CompetitionID, pc.Status, pc.Score, pc.JoinedAt, pc.UpdatedAt, pc.Level, pc.CountryCode,
 	)
-	return err
+	if err != nil {
+		log.Printf("[Repository] Error updating player_competition %d: %v", pc.ID, err)
+		return err
+	}
+	log.Printf("[Repository] Successfully updated player_competition %d", pc.ID)
+	return nil
 }
 
 func (r *Repository) GetLatestPlayerCompetition(ctx context.Context, playerID string) (*model.PlayerCompetition, error) {
@@ -154,8 +155,10 @@ func (r *Repository) GetLatestPlayerCompetition(ctx context.Context, playerID st
 		LIMIT 1
 	`, playerID).Scan(&pc.ID, &pc.PlayerID, &pc.CompetitionID, &pc.Status, &pc.Score, &pc.JoinedAt, &pc.UpdatedAt, &pc.Level, &pc.CountryCode)
 	if err != nil {
+		log.Printf("[Repository] Error fetching latest player_competition for player %s: %v", playerID, err)
 		return nil, err
 	}
+	log.Printf("[Repository] Successfully fetched latest player_competition for player %s", playerID)
 	return &pc, nil
 }
 
@@ -167,6 +170,7 @@ func (r *Repository) GetLeaderboardByCompetitionID(ctx context.Context, competit
 		ORDER BY score DESC, player_id ASC
 	`, competitionID)
 	if err != nil {
+		log.Printf("[Repository] Error fetching leaderboard for competition %s: %v", competitionID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -175,10 +179,12 @@ func (r *Repository) GetLeaderboardByCompetitionID(ctx context.Context, competit
 	for rows.Next() {
 		var pc model.PlayerCompetition
 		if err := rows.Scan(&pc.ID, &pc.PlayerID, &pc.CompetitionID, &pc.Status, &pc.Score, &pc.JoinedAt, &pc.UpdatedAt, &pc.Level, &pc.CountryCode); err != nil {
+			log.Printf("[Repository] Error scanning leaderboard entry for competition %s: %v", competitionID, err)
 			return nil, err
 		}
 		pcs = append(pcs, pc)
 	}
+	log.Printf("[Repository] Successfully fetched leaderboard for competition %s", competitionID)
 	return pcs, nil
 }
 
@@ -269,14 +275,36 @@ func (r *Repository) AddScoreToPlayer(ctx context.Context, playerID string, scor
 	return err
 }
 
+func (r *Repository) CompleteFinishedCompetitions(ctx context.Context) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE competitions
+		SET status = 'COMPLETED'
+		WHERE ends_at < NOW() AND status = 'ACTIVE'
+	`)
+	if err != nil {
+		log.Printf("[Repository] Error completing finished competitions: %v", err)
+		return err
+	}
+	count, _ := res.RowsAffected()
+	log.Printf("[Repository] Marked %d competitions as COMPLETED", count)
+	return nil
+}
+
+func (r *Repository) IsPlayerInWaitingQueue(ctx context.Context, playerID string) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM player_competitions WHERE player_id = $1 AND status = 'WAITING'
+	`, playerID).Scan(&count)
+	if err != nil {
+		log.Printf("[Repository] Error checking waiting queue for player %s: %v", playerID, err)
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // Repository interface for dependency injection
 // (should match the one in service)
 type RepositoryInterface interface {
-	Join(ctx context.Context, playerID string) (string, error)
-	GetPlayerLeaderboard(ctx context.Context, playerID string) (interface{}, error)
-	GetLeaderboard(ctx context.Context, leaderboardID string) (interface{}, error)
-	SubmitScore(ctx context.Context, playerID string, score int) error
-
 	CreatePlayer(ctx context.Context, player *model.Player) error
 	GetPlayerByID(ctx context.Context, playerID string) (*model.Player, error)
 	UpdatePlayer(ctx context.Context, player *model.Player) error
@@ -284,6 +312,8 @@ type RepositoryInterface interface {
 	CreateCompetition(ctx context.Context, comp *model.Competition) error
 	GetCompetitionByID(ctx context.Context, competitionID string) (*model.Competition, error)
 	UpdateCompetition(ctx context.Context, comp *model.Competition) error
+
+	GetActiveCompetition(ctx context.Context) (*model.Competition, error)
 
 	CreatePlayerCompetition(ctx context.Context, pc *model.PlayerCompetition) error
 	GetPlayerCompetitionByID(ctx context.Context, id int) (*model.PlayerCompetition, error)
@@ -297,4 +327,8 @@ type RepositoryInterface interface {
 	UpdatePlayerCompetitionsToActive(ctx context.Context, playerIDs []string, competitionID uuid.UUID, endsAt time.Time) error
 
 	AddScoreToPlayer(ctx context.Context, playerID string, score int) error
+
+	CompleteFinishedCompetitions(ctx context.Context) error
+
+	IsPlayerInWaitingQueue(ctx context.Context, playerID string) (bool, error)
 }

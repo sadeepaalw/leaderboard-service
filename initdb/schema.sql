@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS competitions (
     started_at     TIMESTAMP NOT NULL,
     ends_at        TIMESTAMP NOT NULL,
     level          INT,
-    country_code   TEXT
+    country_code   TEXT,
+    status         TEXT NOT NULL DEFAULT 'ACTIVE'
 );
 
 -- Player competitions table

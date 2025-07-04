@@ -12,12 +12,21 @@ type Player struct {
 	CountryCode string `db:"country_code"`
 }
 
+type CompetitionStatus string
+
+const (
+	CompetitionActive    CompetitionStatus = "ACTIVE"
+	CompetitionCompleted CompetitionStatus = "COMPLETED"
+	CompetitionCancelled CompetitionStatus = "CANCELLED"
+)
+
 type Competition struct {
-	CompetitionID uuid.UUID `db:"competition_id"`
-	StartedAt     time.Time `db:"started_at"`
-	EndsAt        time.Time `db:"ends_at"`
-	Level         int       `db:"level"`
-	CountryCode   string    `db:"country_code"`
+	CompetitionID uuid.UUID         `db:"competition_id"`
+	StartedAt     time.Time         `db:"started_at"`
+	EndsAt        time.Time         `db:"ends_at"`
+	Level         int               `db:"level"`
+	CountryCode   string            `db:"country_code"`
+	Status        CompetitionStatus `db:"status"`
 }
 
 type PlayerStatus string
