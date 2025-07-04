@@ -579,27 +579,3 @@ func TestIsPlayerInWaitingQueue(t *testing.T) {
 		t.Errorf("IsPlayerInWaitingQueue returned false, want true")
 	}
 }
-
-func TestRunMatchmakingTransactional(t *testing.T) {
-	db := setupTestDB(t)
-	repo := NewRepository(db)
-	playerID := "testplayer13"
-	compID := uuid.New()
-	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
-	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
-	defer cleanupPlayer(t, db, playerID)
-	defer cleanupCompetition(t, db, compID.String())
-	err := repo.RunMatchmakingTransactional(context.Background(), func(tx *sql.Tx) error {
-		_, err := tx.Exec("INSERT INTO player_competitions (player_id, competition_id, status, score, joined_at, updated_at, level, country_code) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", playerID, compID, "WAITING", 0, time.Now(), time.Now(), 1, "US")
-		return err
-	})
-	if err != nil {
-		t.Fatalf("RunMatchmakingTransactional failed: %v", err)
-	}
-	row := db.QueryRow("SELECT COUNT(1) FROM player_competitions WHERE player_id = $1 AND competition_id = $2", playerID, compID)
-	var count int
-	row.Scan(&count)
-	if count != 1 {
-		t.Errorf("RunMatchmakingTransactional did not insert player_competition")
-	}
-}

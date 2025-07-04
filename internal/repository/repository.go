@@ -316,24 +316,6 @@ func (r *Repository) IsPlayerInWaitingQueue(ctx context.Context, playerID string
 	return count > 0, nil
 }
 
-func (r *Repository) RunMatchmakingTransactional(ctx context.Context, fn func(tx *sql.Tx) error) error {
-	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if p := recover(); p != nil {
-			tx.Rollback()
-			panic(p)
-		} else if err != nil {
-			tx.Rollback()
-		} else {
-			err = tx.Commit()
-		}
-	}()
-	return fn(tx)
-}
-
 // Repository interface for dependency injection
 // (should match the one in service)
 type RepositoryInterface interface {
@@ -363,6 +345,4 @@ type RepositoryInterface interface {
 	CompleteFinishedCompetitions(ctx context.Context) error
 
 	IsPlayerInWaitingQueue(ctx context.Context, playerID string) (bool, error)
-
-	RunMatchmakingTransactional(ctx context.Context, fn func(tx *sql.Tx) error) error
 }
