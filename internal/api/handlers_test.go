@@ -376,6 +376,161 @@ func TestUpdatePlayerHandler_Error(t *testing.T) {
 	}
 }
 
+func TestJoinHandler_AlreadyInActiveCompetition(t *testing.T) {
+	svc := &mockService{
+		JoinFunc: func(ctx context.Context, playerID string) (string, error) {
+			return "", errors.New("player already in active competition")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("POST", "/leaderboard/join?player_id=p5", nil)
+	rec := httptest.NewRecorder()
+
+	h.JoinHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestJoinHandler_AlreadyInWaitingQueue(t *testing.T) {
+	svc := &mockService{
+		JoinFunc: func(ctx context.Context, playerID string) (string, error) {
+			return "", errors.New("player already in waiting queue")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("POST", "/leaderboard/join?player_id=p6", nil)
+	rec := httptest.NewRecorder()
+
+	h.JoinHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestJoinHandler_InternalError(t *testing.T) {
+	svc := &mockService{
+		JoinFunc: func(ctx context.Context, playerID string) (string, error) {
+			return "", errors.New("some internal error")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("POST", "/leaderboard/join?player_id=p7", nil)
+	rec := httptest.NewRecorder()
+
+	h.JoinHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestCreatePlayerHandler_BadRequest(t *testing.T) {
+	h := NewHandler(&mockService{})
+	req := httptest.NewRequest("POST", "/player", bytes.NewReader([]byte("notjson")))
+	rec := httptest.NewRecorder()
+
+	h.CreatePlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestScoreHandler_PlayerNotInActiveCompetition(t *testing.T) {
+	svc := &mockService{
+		SubmitScoreFunc: func(ctx context.Context, playerID string, score int) error {
+			return errors.New("player not in active competition")
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"player_id": "p3", "score": 10})
+	req := httptest.NewRequest("POST", "/leaderboard/score", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+
+	h.ScoreHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409, got %d", resp.StatusCode)
+	}
+}
+
+func TestScoreHandler_InternalError(t *testing.T) {
+	svc := &mockService{
+		SubmitScoreFunc: func(ctx context.Context, playerID string, score int) error {
+			return errors.New("db error")
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"player_id": "p4", "score": 10})
+	req := httptest.NewRequest("POST", "/leaderboard/score", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+
+	h.ScoreHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdatePlayerHandler_InternalError(t *testing.T) {
+	svc := &mockService{
+		UpdatePlayerFunc: func(ctx context.Context, playerID string, level int, countryCode string) error {
+			return errors.New("db error")
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"level": 2, "country_code": "GB"})
+	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.UpdatePlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestPlayerLeaderboardHandler_EmptyLeaderboard(t *testing.T) {
+	svc := &mockService{
+		GetPlayerLeaderboardFunc: func(ctx context.Context, playerID string) (interface{}, error) {
+			return map[string]interface{}{}, nil
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/leaderboard/player/p8", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p8"})
+	h.PlayerLeaderboardHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	if string(body) != "{}" {
+		t.Errorf("expected empty JSON object, got %s", string(body))
+	}
+}
+
+func TestLeaderboardHandler_InternalError(t *testing.T) {
+	svc := &mockService{
+		GetLeaderboardFunc: func(ctx context.Context, leaderboardID string) (interface{}, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/leaderboard/lid", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"leaderboardID": "lid"})
+	h.LeaderboardHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
 // Helper to set mux vars for testing
 func muxSetVars(r *http.Request, vars map[string]string) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), "muxVars", vars))
