@@ -11,7 +11,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var testDSN = "host=localhost port=5432 user=leaderboard password=leaderboard dbname=leaderboard sslmode=disable"
+var testDSN = "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=disable"
 
 func setupTestDB(t *testing.T) *sql.DB {
 	db, err := sql.Open("postgres", testDSN)
