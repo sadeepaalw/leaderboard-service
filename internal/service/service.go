@@ -22,6 +22,16 @@ type Service struct {
 	config Config
 }
 
+type ServiceInterface interface {
+	Join(ctx context.Context, playerID string) (string, error)
+	SubmitScore(ctx context.Context, playerID string, score int) error
+	GetPlayerLeaderboard(ctx context.Context, playerID string) (interface{}, error)
+	GetLeaderboard(ctx context.Context, leaderboardID string) (interface{}, error)
+	CreatePlayer(ctx context.Context, playerID string, level int, countryCode string) error
+	GetPlayer(ctx context.Context, playerID string) (*model.Player, error)
+	UpdatePlayer(ctx context.Context, playerID string, level int, countryCode string) error
+}
+
 func NewService(repo repository.RepositoryInterface, config Config) *Service {
 	return &Service{repo: repo, config: config}
 }
