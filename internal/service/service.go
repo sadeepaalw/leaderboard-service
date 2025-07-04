@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"leaderboard-service/internal/model"
 	"leaderboard-service/internal/repository"
 	"log"
@@ -43,18 +44,9 @@ func (s *Service) StartMatchmakingWorker(ctx context.Context) {
 }
 
 func (s *Service) runMatchmaking(ctx context.Context) {
-	// Mark finished competitions as COMPLETED
+	// 1. Mark finished competitions as COMPLETED
 	if err := s.repo.CompleteFinishedCompetitions(ctx); err != nil {
 		log.Printf("[MatchmakingWorker] Error completing finished competitions: %v", err)
-	}
-	waitingPlayers, err := s.repo.GetWaitingPlayers(ctx)
-	if err != nil {
-		log.Printf("[MatchmakingWorker] Error fetching waiting players: %v", err)
-		return
-	}
-	if len(waitingPlayers) == 0 {
-		log.Println("[MatchmakingWorker] No players waiting")
-		return
 	}
 
 	// Check for existing active competition
@@ -64,11 +56,56 @@ func (s *Service) runMatchmaking(ctx context.Context) {
 		return
 	}
 
-	group := waitingPlayers
-	if len(group) > 10 {
-		group = group[:10]
+	// 2. Fetch all waiting players
+	waitingPlayers, err := s.repo.GetWaitingPlayers(ctx)
+	if err != nil {
+		log.Printf("[MatchmakingWorker] Error fetching waiting players: %v", err)
+		return
 	}
-	log.Printf("[MatchmakingWorker] Found %d waiting players, grouping %d", len(waitingPlayers), len(group))
+	if len(waitingPlayers) < 2 {
+		log.Println("[MatchmakingWorker] Not enough players waiting")
+		return
+	}
+
+	// 3. Try to find the best group to match
+	var bestGroup []model.PlayerCompetition
+	var matchType string
+
+	// 3a. Level-based matching
+	levelGroups := make(map[int][]model.PlayerCompetition)
+	for _, p := range waitingPlayers {
+		levelGroups[p.Level] = append(levelGroups[p.Level], p)
+	}
+	for level, group := range levelGroups {
+		if len(group) >= 2 {
+			bestGroup = group
+			matchType = fmt.Sprintf("level %d", level)
+			break
+		}
+	}
+
+	// 3b. Country-based matching (if no level group found)
+	if len(bestGroup) == 0 {
+		countryGroups := make(map[string][]model.PlayerCompetition)
+		for _, p := range waitingPlayers {
+			countryGroups[p.CountryCode] = append(countryGroups[p.CountryCode], p)
+		}
+		for country, group := range countryGroups {
+			if len(group) >= 2 {
+				bestGroup = group
+				matchType = fmt.Sprintf("country %s", country)
+				break
+			}
+		}
+	}
+
+	// 3c. Fallback: all waiting players
+	if len(bestGroup) == 0 {
+		bestGroup = waitingPlayers
+		matchType = "fallback (all waiting players)"
+	}
+
+	// 4. Create the competition for the best group
 
 	compID := uuid.New()
 	now := time.Now()
@@ -77,23 +114,23 @@ func (s *Service) runMatchmaking(ctx context.Context) {
 		CompetitionID: compID,
 		StartedAt:     now,
 		EndsAt:        endsAt,
-		Level:         group[0].Level,
-		CountryCode:   group[0].CountryCode,
+		Level:         bestGroup[0].Level,
+		CountryCode:   bestGroup[0].CountryCode,
 		Status:        model.CompetitionActive,
 	}
 	if err := s.repo.CreateCompetition(ctx, comp); err != nil {
 		log.Printf("[MatchmakingWorker] Error creating competition: %v", err)
 		return
 	}
-	playerIDs := make([]string, len(group))
-	for i, p := range group {
+	playerIDs := make([]string, len(bestGroup))
+	for i, p := range bestGroup {
 		playerIDs[i] = p.PlayerID
 	}
 	if err := s.repo.UpdatePlayerCompetitionsToActive(ctx, playerIDs, compID, endsAt); err != nil {
 		log.Printf("[MatchmakingWorker] Error updating player competitions: %v", err)
 		return
 	}
-	log.Printf("[MatchmakingWorker] Started competition %s with players: %v", compID.String(), playerIDs)
+	log.Printf("[MatchmakingWorker] Started competition %s (%s) with players: %v", compID.String(), matchType, playerIDs)
 }
 
 func (s *Service) Join(ctx context.Context, playerID string) (string, error) {
@@ -250,17 +287,3 @@ func (s *Service) UpdatePlayer(ctx context.Context, playerID string, level int, 
 	log.Printf("[Service] Successfully updated player %s", playerID)
 	return nil
 }
-
-// // Repository interface for dependency injection
-// // (to be implemented in internal/repository)
-// type Repository interface {
-// 	// Define methods as needed for DB access
-// 	GetLatestPlayerCompetition(ctx context.Context, playerID string) (*model.PlayerCompetition, error)
-// 	GetLeaderboardByCompetitionID(ctx context.Context, competitionID string) ([]model.PlayerCompetition, error)
-// 	GetPlayerByID(ctx context.Context, playerID string) (*model.Player, error)
-// 	GetActivePlayerCompetition(ctx context.Context, playerID string) (*model.PlayerCompetition, error)
-// 	CreatePlayerCompetition(ctx context.Context, playerCompetition *model.PlayerCompetition) error
-// 	CreatePlayer(ctx context.Context, player *model.Player) error
-// 	UpdatePlayer(ctx context.Context, player *model.Player) error
-// 	AddScoreToPlayer(ctx context.Context, playerID string, score int) error
-// }

@@ -276,10 +276,11 @@ func (r *Repository) AddScoreToPlayer(ctx context.Context, playerID string, scor
 }
 
 func (r *Repository) CompleteFinishedCompetitions(ctx context.Context) error {
+	// 1. Mark competitions as COMPLETED
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE competitions
 		SET status = 'COMPLETED'
-		WHERE ends_at < NOW() AND status = 'ACTIVE'
+		WHERE ends_at <= NOW() AND status = 'ACTIVE'
 	`)
 	if err != nil {
 		log.Printf("[Repository] Error completing finished competitions: %v", err)
@@ -287,6 +288,19 @@ func (r *Repository) CompleteFinishedCompetitions(ctx context.Context) error {
 	}
 	count, _ := res.RowsAffected()
 	log.Printf("[Repository] Marked %d competitions as COMPLETED", count)
+
+	// 2. Mark related player_competitions as COMPLETED
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE player_competitions
+		SET status = 'COMPLETED'
+		WHERE competition_id IN (
+			SELECT competition_id FROM competitions WHERE status = 'COMPLETED' AND ends_at <= NOW()
+		) AND status = 'ACTIVE'
+	`)
+	if err != nil {
+		log.Printf("[Repository] Error completing player_competitions: %v", err)
+		return err
+	}
 	return nil
 }
 
@@ -300,6 +314,24 @@ func (r *Repository) IsPlayerInWaitingQueue(ctx context.Context, playerID string
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *Repository) RunMatchmakingTransactional(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+	return fn(tx)
 }
 
 // Repository interface for dependency injection
@@ -331,4 +363,6 @@ type RepositoryInterface interface {
 	CompleteFinishedCompetitions(ctx context.Context) error
 
 	IsPlayerInWaitingQueue(ctx context.Context, playerID string) (bool, error)
+
+	RunMatchmakingTransactional(ctx context.Context, fn func(tx *sql.Tx) error) error
 }

@@ -36,8 +36,8 @@ func main() {
 	repo := repository.NewRepository(database)
 
 	config := service.Config{
-		MatchmakingInterval: getenvDuration("MATCHMAKING_INTERVAL", 30*time.Second),
-		CompetitionDuration: getenvDuration("COMPETITION_DURATION", 1*time.Minute),
+		MatchmakingInterval: getenvDuration("MATCHMAKING_INTERVAL", 15*time.Second),
+		CompetitionDuration: getenvDuration("COMPETITION_DURATION", 30*time.Second),
 	}
 
 	svc := service.NewService(repo, config)
