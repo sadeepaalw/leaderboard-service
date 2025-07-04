@@ -13,8 +13,13 @@ import (
 )
 
 type mockService struct {
-	CreatePlayerFunc func(ctx context.Context, playerID string, level int, countryCode string) error
-	JoinFunc         func(ctx context.Context, playerID string) (string, error)
+	CreatePlayerFunc         func(ctx context.Context, playerID string, level int, countryCode string) error
+	JoinFunc                 func(ctx context.Context, playerID string) (string, error)
+	GetPlayerLeaderboardFunc func(ctx context.Context, playerID string) (interface{}, error)
+	GetLeaderboardFunc       func(ctx context.Context, leaderboardID string) (interface{}, error)
+	SubmitScoreFunc          func(ctx context.Context, playerID string, score int) error
+	GetPlayerFunc            func(ctx context.Context, playerID string) (*model.Player, error)
+	UpdatePlayerFunc         func(ctx context.Context, playerID string, level int, countryCode string) error
 }
 
 func (m *mockService) CreatePlayer(ctx context.Context, playerID string, level int, countryCode string) error {
@@ -23,19 +28,31 @@ func (m *mockService) CreatePlayer(ctx context.Context, playerID string, level i
 func (m *mockService) Join(ctx context.Context, playerID string) (string, error) {
 	return m.JoinFunc(ctx, playerID)
 }
-
-// Dummy implementations for unused interface methods
-func (m *mockService) SubmitScore(ctx context.Context, playerID string, score int) error { return nil }
 func (m *mockService) GetPlayerLeaderboard(ctx context.Context, playerID string) (interface{}, error) {
+	if m.GetPlayerLeaderboardFunc != nil {
+		return m.GetPlayerLeaderboardFunc(ctx, playerID)
+	}
 	return nil, nil
 }
 func (m *mockService) GetLeaderboard(ctx context.Context, leaderboardID string) (interface{}, error) {
+	if m.GetLeaderboardFunc != nil {
+		return m.GetLeaderboardFunc(ctx, leaderboardID)
+	}
 	return nil, nil
+}
+func (m *mockService) SubmitScore(ctx context.Context, playerID string, score int) error {
+	if m.SubmitScoreFunc != nil {
+		return m.SubmitScoreFunc(ctx, playerID, score)
+	}
+	return nil
 }
 func (m *mockService) GetPlayer(ctx context.Context, playerID string) (*model.Player, error) {
 	return nil, nil
 }
 func (m *mockService) UpdatePlayer(ctx context.Context, playerID string, level int, countryCode string) error {
+	if m.UpdatePlayerFunc != nil {
+		return m.UpdatePlayerFunc(ctx, playerID, level, countryCode)
+	}
 	return nil
 }
 
@@ -131,4 +148,235 @@ func TestJoinHandler_PlayerNotFound(t *testing.T) {
 	if !bytes.Contains(body, []byte("player not found")) {
 		t.Errorf("expected player not found message, got %s", string(body))
 	}
+}
+
+func TestHelloHandler(t *testing.T) {
+	h := NewHandler(&mockService{})
+	req := httptest.NewRequest("GET", "/hello", nil)
+	rec := httptest.NewRecorder()
+
+	h.HelloHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	if !bytes.Contains(body, []byte("Hello, World!")) {
+		t.Errorf("expected Hello, World! message, got %s", string(body))
+	}
+}
+
+func TestPlayerLeaderboardHandler_Success(t *testing.T) {
+	svc := &mockService{
+		GetPlayerLeaderboardFunc: func(ctx context.Context, playerID string) (interface{}, error) {
+			return map[string]interface{}{"leaderboard_id": "lid", "leaderboard": []interface{}{}}, nil
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/leaderboard/player/p1", nil)
+	rec := httptest.NewRecorder()
+
+	// mux.Vars requires a router, so we set it manually
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.PlayerLeaderboardHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	body, _ := ioutil.ReadAll(resp.Body)
+	if !bytes.Contains(body, []byte("leaderboard_id")) {
+		t.Errorf("expected leaderboard_id in response, got %s", string(body))
+	}
+}
+
+func TestPlayerLeaderboardHandler_Error(t *testing.T) {
+	svc := &mockService{
+		GetPlayerLeaderboardFunc: func(ctx context.Context, playerID string) (interface{}, error) {
+			return nil, errors.New("fail")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/leaderboard/player/p1", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.PlayerLeaderboardHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+func TestLeaderboardHandler_Success(t *testing.T) {
+	svc := &mockService{
+		GetLeaderboardFunc: func(ctx context.Context, leaderboardID string) (interface{}, error) {
+			return map[string]interface{}{"leaderboard_id": leaderboardID, "leaderboard": []interface{}{}}, nil
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/leaderboard/lid", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"leaderboardID": "lid"})
+	h.LeaderboardHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestLeaderboardHandler_NotFound(t *testing.T) {
+	svc := &mockService{
+		GetLeaderboardFunc: func(ctx context.Context, leaderboardID string) (interface{}, error) {
+			return nil, errors.New("not found")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/leaderboard/lid", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"leaderboardID": "lid"})
+	h.LeaderboardHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestScoreHandler_Success(t *testing.T) {
+	svc := &mockService{
+		SubmitScoreFunc: func(ctx context.Context, playerID string, score int) error {
+			if playerID != "p1" || score != 42 {
+				t.Errorf("unexpected args: %s, %d", playerID, score)
+			}
+			return nil
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"player_id": "p1", "score": 42})
+	req := httptest.NewRequest("POST", "/leaderboard/score", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+
+	h.ScoreHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestScoreHandler_PlayerNotFound(t *testing.T) {
+	svc := &mockService{
+		SubmitScoreFunc: func(ctx context.Context, playerID string, score int) error {
+			return errors.New("player not found")
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"player_id": "p2", "score": 10})
+	req := httptest.NewRequest("POST", "/leaderboard/score", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+
+	h.ScoreHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestScoreHandler_BadRequest(t *testing.T) {
+	h := NewHandler(&mockService{})
+	req := httptest.NewRequest("POST", "/leaderboard/score", bytes.NewReader([]byte("notjson")))
+	rec := httptest.NewRecorder()
+
+	h.ScoreHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetPlayerHandler_Success(t *testing.T) {
+	svc := &mockService{
+		GetPlayerFunc: func(ctx context.Context, playerID string) (*model.Player, error) {
+			return &model.Player{PlayerID: playerID, Level: 1, CountryCode: "US"}, nil
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/player/p1", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.GetPlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestGetPlayerHandler_NotFound(t *testing.T) {
+	svc := &mockService{
+		GetPlayerFunc: func(ctx context.Context, playerID string) (*model.Player, error) {
+			return nil, errors.New("not found")
+		},
+	}
+	h := NewHandler(svc)
+	req := httptest.NewRequest("GET", "/player/p2", nil)
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p2"})
+	h.GetPlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdatePlayerHandler_Success(t *testing.T) {
+	svc := &mockService{
+		UpdatePlayerFunc: func(ctx context.Context, playerID string, level int, countryCode string) error {
+			if playerID != "p1" || level != 2 || countryCode != "GB" {
+				t.Errorf("unexpected update: %s, %d, %s", playerID, level, countryCode)
+			}
+			return nil
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"level": 2, "country_code": "GB"})
+	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.UpdatePlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdatePlayerHandler_BadRequest(t *testing.T) {
+	h := NewHandler(&mockService{})
+	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader([]byte("notjson")))
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.UpdatePlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestUpdatePlayerHandler_Error(t *testing.T) {
+	svc := &mockService{
+		UpdatePlayerFunc: func(ctx context.Context, playerID string, level int, countryCode string) error {
+			return errors.New("fail")
+		},
+	}
+	h := NewHandler(svc)
+	b, _ := json.Marshal(map[string]interface{}{"level": 2, "country_code": "GB"})
+	req := httptest.NewRequest("PUT", "/player/p1", bytes.NewReader(b))
+	rec := httptest.NewRecorder()
+	req = muxSetVars(req, map[string]string{"player_id": "p1"})
+	h.UpdatePlayerHandler(rec, req)
+	resp := rec.Result()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", resp.StatusCode)
+	}
+}
+
+// Helper to set mux vars for testing
+func muxSetVars(r *http.Request, vars map[string]string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), "muxVars", vars))
 }
