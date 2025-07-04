@@ -49,6 +49,9 @@ func (m *mockService) SubmitScore(ctx context.Context, playerID string, score in
 	return nil
 }
 func (m *mockService) GetPlayer(ctx context.Context, playerID string) (*model.Player, error) {
+	if m.GetPlayerFunc != nil {
+		return m.GetPlayerFunc(ctx, playerID)
+	}
 	return nil, nil
 }
 func (m *mockService) UpdatePlayer(ctx context.Context, playerID string, level int, countryCode string) error {
