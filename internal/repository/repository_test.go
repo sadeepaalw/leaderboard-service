@@ -263,3 +263,343 @@ func TestUpdatePlayerCompetition(t *testing.T) {
 		t.Errorf("UpdatePlayerCompetition did not update fields: got %+v", got)
 	}
 }
+
+func TestGetActiveCompetition(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	compID := uuid.New()
+	comp := &model.Competition{
+		CompetitionID: compID,
+		StartedAt:     time.Now(),
+		EndsAt:        time.Now().Add(time.Hour),
+		Level:         1,
+		CountryCode:   "US",
+		Status:        model.CompetitionActive,
+	}
+	defer cleanupPlayerCompetitionByCompetitionID(t, db, compID.String())
+	defer cleanupCompetition(t, db, compID.String())
+
+	err := repo.CreateCompetition(context.Background(), comp)
+	if err != nil {
+		t.Fatalf("CreateCompetition failed: %v", err)
+	}
+	got, err := repo.GetActiveCompetition(context.Background())
+	if err != nil {
+		t.Fatalf("GetActiveCompetition failed: %v", err)
+	}
+	if got.CompetitionID != comp.CompetitionID {
+		t.Errorf("GetActiveCompetition returned wrong competition: got %+v, want %+v", got, comp)
+	}
+}
+
+func TestGetLatestPlayerCompetition(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer5"
+	compID := uuid.New()
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: &compID,
+		Status:        "ACTIVE",
+		Score:         10,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	defer cleanupPlayerCompetitionByPlayerAndCompetition(t, db, playerID, compID.String())
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	got, err := repo.GetLatestPlayerCompetition(context.Background(), playerID)
+	if err != nil {
+		t.Fatalf("GetLatestPlayerCompetition failed: %v", err)
+	}
+	if got.PlayerID != playerID {
+		t.Errorf("GetLatestPlayerCompetition returned wrong player: got %+v", got)
+	}
+}
+
+func TestGetLeaderboardByCompetitionID(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	compID := uuid.New()
+	playerID := "testplayer6"
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: &compID,
+		Status:        "ACTIVE",
+		Score:         100,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	defer cleanupPlayerCompetitionByPlayerAndCompetition(t, db, playerID, compID.String())
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	entries, err := repo.GetLeaderboardByCompetitionID(context.Background(), compID.String())
+	if err != nil {
+		t.Fatalf("GetLeaderboardByCompetitionID failed: %v", err)
+	}
+	if len(entries) == 0 || entries[0].PlayerID != playerID {
+		t.Errorf("GetLeaderboardByCompetitionID returned wrong entries: %+v", entries)
+	}
+}
+
+func TestGetActivePlayerCompetition(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer7"
+	compID := uuid.New()
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: &compID,
+		Status:        "ACTIVE",
+		Score:         0,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	defer cleanupPlayerCompetitionByPlayerAndCompetition(t, db, playerID, compID.String())
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	got, err := repo.GetActivePlayerCompetition(context.Background(), playerID)
+	if err != nil {
+		t.Fatalf("GetActivePlayerCompetition failed: %v", err)
+	}
+	if got.PlayerID != playerID {
+		t.Errorf("GetActivePlayerCompetition returned wrong player: got %+v", got)
+	}
+}
+
+func TestGetWaitingPlayers(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer8"
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: nil,
+		Status:        "WAITING",
+		Score:         0,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupPlayerCompetitionByPlayerID(t, db, playerID)
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	waiting, err := repo.GetWaitingPlayers(context.Background())
+	if err != nil {
+		t.Fatalf("GetWaitingPlayers failed: %v", err)
+	}
+	found := false
+	for _, w := range waiting {
+		if w.PlayerID == playerID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("GetWaitingPlayers did not return the waiting player")
+	}
+}
+
+func TestUpdatePlayerCompetitionsToActive(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer9"
+	compID := uuid.New()
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: nil,
+		Status:        "WAITING",
+		Score:         0,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	defer cleanupPlayerCompetitionByPlayerAndCompetition(t, db, playerID, compID.String())
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	err = repo.UpdatePlayerCompetitionsToActive(context.Background(), []string{playerID}, compID, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("UpdatePlayerCompetitionsToActive failed: %v", err)
+	}
+	got, err := repo.GetActivePlayerCompetition(context.Background(), playerID)
+	if err != nil {
+		t.Fatalf("GetActivePlayerCompetition failed: %v", err)
+	}
+	if got.CompetitionID == nil || *got.CompetitionID != compID {
+		t.Errorf("UpdatePlayerCompetitionsToActive did not update competition ID")
+	}
+}
+
+func TestAddScoreToPlayer(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer10"
+	compID := uuid.New()
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: &compID,
+		Status:        "ACTIVE",
+		Score:         0,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	defer cleanupPlayerCompetitionByPlayerAndCompetition(t, db, playerID, compID.String())
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	err = repo.AddScoreToPlayer(context.Background(), playerID, 42)
+	if err != nil {
+		t.Fatalf("AddScoreToPlayer failed: %v", err)
+	}
+	got, err := repo.GetActivePlayerCompetition(context.Background(), playerID)
+	if err != nil {
+		t.Fatalf("GetActivePlayerCompetition failed: %v", err)
+	}
+	if got.Score != 42 {
+		t.Errorf("AddScoreToPlayer did not update score: got %d", got.Score)
+	}
+}
+
+func TestCompleteFinishedCompetitions(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	compID := uuid.New()
+	playerID := "testplayer11"
+	comp := &model.Competition{
+		CompetitionID: compID,
+		StartedAt:     time.Now().Add(-2 * time.Hour),
+		EndsAt:        time.Now().Add(-time.Hour),
+		Level:         1,
+		CountryCode:   "US",
+		Status:        model.CompetitionActive,
+	}
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: &compID,
+		Status:        "ACTIVE",
+		Score:         0,
+		JoinedAt:      time.Now().Add(-2 * time.Hour),
+		UpdatedAt:     time.Now().Add(-2 * time.Hour),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	defer cleanupPlayerCompetitionByPlayerAndCompetition(t, db, playerID, compID.String())
+	err := repo.CreateCompetition(context.Background(), comp)
+	if err != nil {
+		t.Fatalf("CreateCompetition failed: %v", err)
+	}
+	err = repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	err = repo.CompleteFinishedCompetitions(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteFinishedCompetitions failed: %v", err)
+	}
+	updatedComp, err := repo.GetCompetitionByID(context.Background(), compID.String())
+	if err != nil {
+		t.Fatalf("GetCompetitionByID failed: %v", err)
+	}
+	if updatedComp.Status != model.CompetitionCompleted {
+		t.Errorf("CompleteFinishedCompetitions did not mark competition as COMPLETED")
+	}
+}
+
+func TestIsPlayerInWaitingQueue(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer12"
+	pc := &model.PlayerCompetition{
+		PlayerID:      playerID,
+		CompetitionID: nil,
+		Status:        "WAITING",
+		Score:         0,
+		JoinedAt:      time.Now(),
+		UpdatedAt:     time.Now(),
+		Level:         1,
+		CountryCode:   "US",
+	}
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupPlayerCompetitionByPlayerID(t, db, playerID)
+	err := repo.CreatePlayerCompetition(context.Background(), pc)
+	if err != nil {
+		t.Fatalf("CreatePlayerCompetition failed: %v", err)
+	}
+	inQueue, err := repo.IsPlayerInWaitingQueue(context.Background(), playerID)
+	if err != nil {
+		t.Fatalf("IsPlayerInWaitingQueue failed: %v", err)
+	}
+	if !inQueue {
+		t.Errorf("IsPlayerInWaitingQueue returned false, want true")
+	}
+}
+
+func TestRunMatchmakingTransactional(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewRepository(db)
+	playerID := "testplayer13"
+	compID := uuid.New()
+	_, _ = db.Exec("INSERT INTO players (player_id, level, country_code) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", playerID, 1, "US")
+	_, _ = db.Exec("INSERT INTO competitions (competition_id, started_at, ends_at, level, country_code, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", compID, time.Now(), time.Now().Add(time.Hour), 1, "US", "ACTIVE")
+	defer cleanupPlayer(t, db, playerID)
+	defer cleanupCompetition(t, db, compID.String())
+	err := repo.RunMatchmakingTransactional(context.Background(), func(tx *sql.Tx) error {
+		_, err := tx.Exec("INSERT INTO player_competitions (player_id, competition_id, status, score, joined_at, updated_at, level, country_code) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)", playerID, compID, "WAITING", 0, time.Now(), time.Now(), 1, "US")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("RunMatchmakingTransactional failed: %v", err)
+	}
+	row := db.QueryRow("SELECT COUNT(1) FROM player_competitions WHERE player_id = $1 AND competition_id = $2", playerID, compID)
+	var count int
+	row.Scan(&count)
+	if count != 1 {
+		t.Errorf("RunMatchmakingTransactional did not insert player_competition")
+	}
+}
